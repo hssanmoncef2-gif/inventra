@@ -1,71 +1,29 @@
 /**
- * Chatbot Route — Ollama (free, open-source, self-hosted)
+ * Chatbot Route — Groq (free, cloud-hosted LLaMA)
  */
 
 const router = require('express').Router();
 const { authenticate } = require('../middleware/auth');
 const Inventory = require('../models/Inventory');
 
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://ollama:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2';
-
-/** Ensure Ollama is reachable and model exists, pull if needed */
-async function ensureModel() {
-  const tagsRes = await fetch(`${OLLAMA_URL}/api/tags`);
-  if (!tagsRes.ok) throw new Error('Ollama server not reachable');
-  const body = await tagsRes.json();
-  const models = Array.isArray(body.models) ? body.models : [];
-  const exists = models.some(
-    (m) => m.name === OLLAMA_MODEL || m.name.startsWith(OLLAMA_MODEL + ':')
-  );
-  if (!exists) {
-    console.log(`[chatbot] Pulling model "${OLLAMA_MODEL}"...`);
-    const pullRes = await fetch(`${OLLAMA_URL}/api/pull`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: OLLAMA_MODEL, stream: false }),
-    });
-    if (!pullRes.ok) throw new Error(`Pull failed: ${await pullRes.text()}`);
-    console.log(`[chatbot] Model "${OLLAMA_MODEL}" ready.`);
-  }
-}
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_MODEL = 'llama3-8b-8192';
 
 // ── Health check (GET /api/chatbot/health) ─────────────────────────────────
 router.get('/health', authenticate, async (req, res) => {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    const body = await r.json();
-    const models = Array.isArray(body.models) ? body.models : [];
-    const modelReady = models.some(
-      (m) => m.name === OLLAMA_MODEL || m.name.startsWith(OLLAMA_MODEL + ':')
-    );
-
-    return res.json({
-      success: true,
-      data: {
-        ollamaReachable: true,
-        modelReady,
-        activeModel: OLLAMA_MODEL,
-        availableModels: models.map((m) => m.name),
-      },
-    });
-  } catch (err) {
-    return res.json({
-      success: false,
-      data: { ollamaReachable: false, modelReady: false, activeModel: OLLAMA_MODEL },
-    });
-  }
+  return res.json({
+    success: true,
+    data: {
+      groqReachable: !!GROQ_API_KEY,
+      modelReady: !!GROQ_API_KEY,
+      activeModel: GROQ_MODEL,
+    },
+  });
 });
 
 // ── Chat (POST /api/chatbot/chat) ──────────────────────────────────────────
 router.post('/chat', authenticate, async (req, res) => {
   const { message } = req.body;
-
-  // Defensively ensure history is always a plain array
   const rawHistory = req.body.history;
   const history = Array.isArray(rawHistory) ? rawHistory : [];
 
@@ -73,8 +31,11 @@ router.post('/chat', authenticate, async (req, res) => {
     return res.status(400).json({ success: false, message: 'Message is required' });
   }
 
+  if (!GROQ_API_KEY) {
+    return res.status(500).json({ success: false, message: 'Groq API key not configured' });
+  }
+
   try {
-    // Inventory context
     const [stats] = await Inventory.aggregate([
       { $match: { isActive: true } },
       {
@@ -97,9 +58,7 @@ Current inventory snapshot:
 User: ${req.user.name} (${req.user.role})
 Be concise and helpful. Always reply in the same language as the user.`;
 
-    await ensureModel();
-
-    const ollamaMessages = [
+    const messages = [
       { role: 'system', content: systemPrompt },
       ...history.slice(-8).map((m) => ({
         role: m.role === 'bot' || m.role === 'assistant' ? 'assistant' : 'user',
@@ -108,46 +67,34 @@ Be concise and helpful. Always reply in the same language as the user.`;
       { role: 'user', content: message },
     ];
 
-    const chatController = new AbortController();
-    const chatTimeout = setTimeout(() => chatController.abort(), 120000); // 2 min timeout
-
-    const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: chatController.signal,
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages: ollamaMessages,
-        stream: false,
-        options: { temperature: 0.7, num_predict: 512 },
+        model: GROQ_MODEL,
+        messages,
+        temperature: 0.7,
+        max_tokens: 512,
       }),
     });
-    clearTimeout(chatTimeout);
 
     if (!response.ok) {
-      throw new Error(`Ollama chat error: ${await response.text()}`);
+      throw new Error(`Groq error: ${await response.text()}`);
     }
 
     const data = await response.json();
-    const reply = data.message?.content || 'No response generated.';
+    const reply = data.choices?.[0]?.message?.content || 'No response generated.';
     return res.json({ success: true, data: { reply } });
 
   } catch (err) {
     console.error('[chatbot] Error:', err.message);
-    const isDown =
-      err.message.includes('ECONNREFUSED') ||
-      err.message.includes('fetch failed') ||
-      err.message.includes('not reachable') ||
-      err.name === 'AbortError';
-
     return res.status(500).json({
       success: false,
       message: 'Chatbot error',
-      data: {
-        reply: isDown
-          ? '⏳ The AI model is still loading. Please wait a minute and try again.'
-          : `⚠️ ${err.message}`,
-      },
+      data: { reply: `⚠️ ${err.message}` },
     });
   }
 });

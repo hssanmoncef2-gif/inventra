@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -52,6 +53,19 @@ const Icons = {
       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
     </svg>
   ),
+  menu: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:22,height:22}}>
+      <line x1="3" y1="6" x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="21" y2="12"/>
+      <line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  ),
+  close: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:22,height:22}}>
+      <line x1="18" y1="6" x2="6" y2="18"/>
+      <line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  ),
 };
 
 const roleColors = { admin: 'badge-red', owner: 'badge-amber', manager: 'badge-blue', employee: 'badge-teal' };
@@ -66,6 +80,7 @@ export default function AppShell() {
   const { dark, toggle } = useTheme();
   const { t, lang, setLang } = useI18n();
   const navigate = useNavigate();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -73,11 +88,27 @@ export default function AppShell() {
     navigate('/login');
   };
 
+  const closeSidebar = () => setSidebarOpen(false);
+
   const initials = user?.name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          onClick={closeSidebar}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            zIndex: 99, display: 'none'
+          }}
+          className="mobile-overlay"
+        />
+      )}
+
+      <aside className="sidebar" style={{
+        transform: sidebarOpen ? 'translateX(0)' : undefined,
+      }}>
         <div className="sidebar-logo">
           <span className="sidebar-logo-icon">📦</span>
           <div>
@@ -88,19 +119,19 @@ export default function AppShell() {
 
         <nav className="sidebar-nav">
           <span className="nav-group-label">{t('main')}</span>
-          <NavLink to="/dashboard" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/dashboard" onClick={closeSidebar} className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
             {Icons.dashboard} {t('dashboard')}
           </NavLink>
-          <NavLink to="/inventory" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/inventory" onClick={closeSidebar} className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
             {Icons.inventory} {t('inventory')}
           </NavLink>
           {canManage && (
             <>
               <span className="nav-group-label">{t('management')}</span>
-              <NavLink to="/users" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
+              <NavLink to="/users" onClick={closeSidebar} className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
                 {Icons.users} {t('users')}
               </NavLink>
-              <NavLink to="/reports" className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
+              <NavLink to="/reports" onClick={closeSidebar} className={({isActive}) => `nav-item ${isActive ? 'active' : ''}`}>
                 {Icons.reports} {t('reports')}
               </NavLink>
             </>
@@ -123,21 +154,29 @@ export default function AppShell() {
 
       <div className="main-content flex-col" style={{ minHeight: '100vh' }}>
         <header className="topbar">
-          <div className="topbar-title" />
+          <div className="topbar-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Hamburger button - mobile only */}
+            <button
+              onClick={() => setSidebarOpen(o => !o)}
+              className="hamburger-btn"
+              aria-label="Toggle menu"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text-primary)', padding: 4, display: 'none',
+              }}
+            >
+              {sidebarOpen ? Icons.close : Icons.menu}
+            </button>
+          </div>
           <div className="topbar-actions" style={{ gap: 12 }}>
-            {/* Language switcher */}
             <div style={{ display: 'flex', gap: 3, background: 'var(--bg-surface-2)', borderRadius: 8, padding: 3 }}>
               {LANGS.map(l => (
                 <button
                   key={l.code}
                   onClick={() => setLang(l.code)}
                   style={{
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '.78rem',
-                    fontWeight: 700,
+                    padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    fontSize: '.78rem', fontWeight: 700,
                     background: lang === l.code ? 'var(--brand-primary)' : 'transparent',
                     color: lang === l.code ? '#fff' : 'var(--text-secondary)',
                     transition: 'all .15s',
@@ -162,6 +201,27 @@ export default function AppShell() {
       </div>
 
       <Chatbot />
+
+      <style>{`
+        @media (max-width: 768px) {
+          .hamburger-btn { display: block !important; }
+          .mobile-overlay { display: block !important; }
+          .sidebar {
+            position: fixed !important;
+            left: 0; top: 0; bottom: 0;
+            z-index: 100;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+          }
+          .sidebar[style*="translateX(0)"] {
+            transform: translateX(0) !important;
+          }
+          .main-content {
+            margin-left: 0 !important;
+            width: 100% !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

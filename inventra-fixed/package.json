@@ -1,0 +1,16 @@
+{
+  "name": "inventra",
+  "version": "1.0.0",
+  "description": "Full-stack inventory management system",
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "backup": "cd backend && node utils/backup.js"
+  },
+  "keywords": ["inventory", "management", "nodejs", "react", "mongodb"]
+}

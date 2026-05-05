@@ -1,0 +1,118 @@
+version: '3.9'
+
+# ═══════════════════════════════════════════════════════════════
+#  INVENTRA — Docker Compose
+#  Free AI via Ollama (llama3.2) — no API key needed
+#
+#  FIRST RUN: model downloads automatically in background (~2GB)
+#  The chatbot will show "starting up" until download completes.
+#
+#  DEPLOY:
+#    docker compose up -d --build
+#
+#  CHECK MODEL DOWNLOAD PROGRESS:
+#    docker compose logs -f ollama
+# ═══════════════════════════════════════════════════════════════
+
+services:
+
+  # ── MongoDB ────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: inventra-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: inventory_db
+    networks:
+      - inventra-net
+
+  # ── Ollama AI Server + Model Pull ─────────────────────────
+  # Uses ollama's own CLI to pull the model on startup.
+  # No external healthcheck needed — ollama binary is always present.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: inventra-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - inventra-net
+    # Pull model on container start using ollama's own binary
+    entrypoint: >
+      sh -c "
+        ollama serve &
+        echo 'Waiting for Ollama to start...';
+        sleep 5;
+        echo 'Pulling model ${OLLAMA_MODEL:-llama3.2}...';
+        ollama pull ${OLLAMA_MODEL:-llama3.2};
+        echo 'Model ready!';
+        wait
+      "
+    # ── GPU (optional, NVIDIA only) ──
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ── Backend API ────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: inventra-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://mongo:27017/inventory_db
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-32chars-min}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-refresh-in-production-32chars}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@inventra.local}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-Admin1234!}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      FRONTEND_URL_ALT: ${FRONTEND_URL_ALT:-http://127.0.0.1:3000}
+      UPLOAD_DIR: uploads
+      BACKUP_DIR: backups
+    volumes:
+      - backend-uploads:/app/uploads
+      - backend-backups:/app/backups
+    depends_on:
+      - mongo
+      - ollama
+    networks:
+      - inventra-net
+
+  # ── Frontend ───────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: inventra-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - inventra-net
+
+volumes:
+  mongo-data:
+  ollama-data:
+  backend-uploads:
+  backend-backups:
+
+networks:
+  inventra-net:
+    driver: bridge

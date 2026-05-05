@@ -6,7 +6,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: 'https://inventra-backend-d0yv.onrender.com/api',
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
 });

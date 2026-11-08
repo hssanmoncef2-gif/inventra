@@ -7,8 +7,7 @@ const { authenticate } = require('../middleware/auth');
 const Inventory = require('../models/Inventory');
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
-// ── Health check (GET /api/chatbot/health) ─────────────────────────────────
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';// ── Health check (GET /api/chatbot/health) ─────────────────────────────────
 router.get('/health', authenticate, async (req, res) => {
   return res.json({
     success: true,

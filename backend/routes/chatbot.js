@@ -75,7 +75,7 @@ Be concise and helpful. Always reply in the same language as the user.`;
         model: GROQ_MODEL,
         messages,
         temperature: 0.7,
-        max_tokens: 512,
+        max_tokens: 1024,
       }),
     });
 
